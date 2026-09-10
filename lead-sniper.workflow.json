@@ -3,71 +3,119 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## GitHub High-Value Lead Sniper\n\nWatches a repo's stargazers. When someone influential stars it, an LLM writes a 1-line sales pitch and it's posted to Slack.\n\n**GitHub API note:** since July 2026 the stargazer-listing endpoint only works for repos where your token is an **admin or collaborator**. Point `repoOwner`/`repoName` at a repo you control.\n\n**Before running:**\n1. **Set Config**: set `repoOwner`, `repoName` (a repo you admin).\n2. Set the env var `SLACK_WEBHOOK_URL` on the n8n instance (used by *Post to Slack*).\n3. Credential **GitHub PAT (Header Auth)** -> Header Auth, name `Authorization`, value `Bearer ghp_xxx` (classic PAT, `repo` scope). Assign to the 3 GitHub HTTP nodes.\n4. Credential **OpenAi account** -> your OpenAI API key. Assign to **Generate Sales Pitch**.\n5. First run establishes a baseline and posts nothing. Star the repo, run again.",
-        "height": 360,
+        "content": "## GitHub High-Value Lead Sniper\n\nWatches a repo's stargazers. When someone influential stars it, an LLM writes a 1-line sales pitch and it's posted to Slack.\n\n**GitHub API note:** since July 2026 the stargazer-listing endpoint only works for repos where your token is an **admin or collaborator**. Point `repoOwner`/`repoName` at a repo you control.\n\n**Before running:**\n1. **Set Config**: `repoOwner`, `repoName` (a repo you admin); `openAiModel`.\n2. Credential **GitHub PAT (Header Auth)** -> Header Auth, name `Authorization`, value `Bearer <token>` (`repo` scope). Assign to the 3 GitHub HTTP nodes.\n3. Credential **LLM API (Header Auth)** -> Header Auth, name `Authorization`, value `Bearer <key>`. Assign to **Generate Sales Pitch**. Default endpoint is Groq (`api.groq.com`, OpenAI-compatible, free tier); swap the node URL + key + `openAiModel` for OpenAI or any other OpenAI-compatible API.\n4. **Post to Slack** reads `{{ $env.SLACK_WEBHOOK_URL }}` (n8n Cloud: use an n8n Variable and `$vars.SLACK_WEBHOOK_URL`, or set the URL directly).\n5. Run once. See `DEMO.md` for the test sequence.",
+        "height": 380,
         "width": 440
       },
-      "id": "11111111-0000-0000-0000-000000000001",
+      "id": "91ffd043-3c73-415e-b5f0-25d4313c10cf",
       "name": "Setup notes",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-380, -140]
+      "position": [
+        -1280,
+        80
+      ]
     },
     {
       "parameters": {
-        "content": "### Rate-limit strategy (see LOGIC_LOG.md)\n\n1. **Authenticate** - PAT via Header Auth -> 5,000 req/h instead of 60.\n2. **Conditional request** - `If-None-Match: <etag>` on the stargazer poll. Nothing new -> **HTTP 304**, which does not consume the primary REST rate limit. `neverError` keeps 304 from failing the node.\n3. **Structural minimisation** - `Link: rel=\"last\"` header -> request the newest page instead of hard-coding page 1. `Accept: application/vnd.github.star+json` -> get `starred_at`. `lastStarredAt` watermark -> enrich only genuinely new users. Assumes < 1 page (100) of new stars per poll.\n4. **Defend the rest** - `/users/{login}` serialised at 1 req / 1500 ms as a conservative burst safeguard; retry-on-fail 3x/5s for transient errors; skip the cycle if `X-RateLimit-Remaining` < `minRateRemaining`; *Filter New Stargazers* detects `403`/`429` on the poll, logs `Retry-After` / `X-RateLimit-Reset` and skips the cycle; and enrichment uses `onError: continue` so one failed user is dropped by the high-value filter without failing the run.\n\nCode nodes `console.log` a `[lead-sniper]` trace line so the execution reads top to bottom during a demo. GitHub calls pin `X-GitHub-Api-Version: 2026-03-10`.",
-        "height": 440,
+        "content": "### Rate-limit strategy (see LOGIC_LOG.md)\n\n1. **Authenticate** - PAT via Header Auth -> 5,000 req/h instead of 60.\n2. **Conditional request** - `If-None-Match: <etag>` on the stargazer poll. Nothing new -> **HTTP 304**, which does not consume the primary REST rate limit. `neverError` keeps 304 from failing the node.\n3. **Structural minimisation** - `Link: rel=\"last\"` header -> request the newest page instead of hard-coding page 1. `Accept: application/vnd.github.star+json` -> get `starred_at`. `lastStarredAt` watermark in workflow static data -> enrich only genuinely new users (assumes < 1 page / 100 new stars per poll). If no watermark is stored (first run, or n8n Cloud not persisting static data across manual runs) it falls back to an epoch floor and processes the current stargazers.\n4. **Defend the rest** - `/users/{login}` serialised at 1 req / 1500 ms as a conservative burst safeguard; retry-on-fail 3x/5s for transient errors; skip the cycle if `X-RateLimit-Remaining` < `minRateRemaining`; *Filter New Stargazers* detects `403`/`429` on the poll, logs `Retry-After` / `X-RateLimit-Reset` and skips the cycle; and enrichment uses `onError: continue` so one failed user is dropped by the high-value filter without failing the run.\n\nCode nodes `console.log` a `[lead-sniper]` trace line so the execution reads top to bottom during a demo. GitHub calls pin `X-GitHub-Api-Version: 2026-03-10`.",
+        "height": 470,
         "width": 490
       },
-      "id": "11111111-0000-0000-0000-000000000013",
+      "id": "91a05b8a-8a01-4b19-acc2-125bb9584445",
       "name": "Rate-limit notes",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [900, -220]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
         "rule": {
           "interval": [
-            { "field": "minutes", "minutesInterval": 15 }
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
           ]
         }
       },
-      "id": "11111111-0000-0000-0000-000000000002",
+      "id": "acb67ffd-49aa-4dd7-92f1-b6e284291f59",
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
-      "position": [-160, 240]
+      "position": [
+        -1056,
+        464
+      ]
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "cfg-1", "name": "repoOwner", "value": "Shaurya55555", "type": "string" },
-            { "id": "cfg-2", "name": "repoName", "value": "yellowai-lead-sniper-demo", "type": "string" },
-            { "id": "cfg-3", "name": "minFollowers", "value": 100, "type": "number" },
-            { "id": "cfg-4", "name": "minPublicRepos", "value": 50, "type": "number" },
-            { "id": "cfg-5", "name": "minRateRemaining", "value": 100, "type": "number" },
-            { "id": "cfg-6", "name": "openAiModel", "value": "gpt-4o-mini", "type": "string" }
+            {
+              "id": "cfg-1",
+              "name": "repoOwner",
+              "value": "Shaurya55555",
+              "type": "string"
+            },
+            {
+              "id": "cfg-2",
+              "name": "repoName",
+              "value": "yellowai-lead-sniper-demo",
+              "type": "string"
+            },
+            {
+              "id": "cfg-3",
+              "name": "minFollowers",
+              "value": 100,
+              "type": "number"
+            },
+            {
+              "id": "cfg-4",
+              "name": "minPublicRepos",
+              "value": 50,
+              "type": "number"
+            },
+            {
+              "id": "cfg-5",
+              "name": "minRateRemaining",
+              "value": 100,
+              "type": "number"
+            },
+            {
+              "id": "cfg-6",
+              "name": "openAiModel",
+              "value": "qwen/qwen3.8-27b",
+              "type": "string"
+            }
           ]
         },
         "options": {}
       },
-      "id": "11111111-0000-0000-0000-000000000003",
+      "id": "c5cb2a5d-c87c-4ae6-8a38-46ba3d7bdfee",
       "name": "Set Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [60, 240]
+      "position": [
+        -848,
+        464
+      ]
     },
     {
       "parameters": {
         "jsCode": "// Pull the sync state saved by the previous run (ETag + watermark) out of\n// workflow static data, and carry the config forward on the same item.\nconst store = $getWorkflowStaticData('global');\nconst cfg = $('Set Config').first().json;\nconst state = {\n  repoOwner: cfg.repoOwner,\n  repoName: cfg.repoName,\n  minFollowers: cfg.minFollowers,\n  minPublicRepos: cfg.minPublicRepos,\n  minRateRemaining: cfg.minRateRemaining,\n  openAiModel: cfg.openAiModel || 'gpt-4o-mini',\n  stargazersEtag: store.stargazersEtag || '',\n  lastStarredAt: store.lastStarredAt || ''\n};\nconsole.log('[lead-sniper] poll start repo=' + state.repoOwner + '/' + state.repoName +\n  ' etag=' + (state.stargazersEtag ? 'set' : 'none') +\n  ' watermark=' + (state.lastStarredAt || 'none (baseline run)'));\nreturn [{ json: state }];"
       },
-      "id": "11111111-0000-0000-0000-000000000014",
+      "id": "d0262a25-e030-4cb6-9dd7-b137ab9bd1c6",
       "name": "Load Sync State",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [280, 240]
+      "position": [
+        -624,
+        464
+      ]
     },
     {
       "parameters": {
@@ -77,57 +125,87 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Accept", "value": "application/vnd.github.star+json" },
-            { "name": "X-GitHub-Api-Version", "value": "2026-03-10" }
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.star+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2026-03-10"
+            }
           ]
         },
         "options": {
-          "response": { "response": { "fullResponse": true } }
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
         }
       },
-      "id": "11111111-0000-0000-0000-000000000004",
+      "id": "0b33af8e-b3eb-408f-9bd8-23c0fd6ca7ef",
       "name": "Discover Last Page",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [500, 240],
+      "position": [
+        -400,
+        464
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
       "credentials": {
-        "httpHeaderAuth": { "id": "REPLACE_GITHUB", "name": "GitHub PAT (Header Auth)" }
+        "httpHeaderAuth": {
+          "id": "REPLACE_GITHUB",
+          "name": "GitHub PAT (Header Auth)"
+        }
       }
     },
     {
       "parameters": {
         "jsCode": "// GitHub returns stargazers oldest-first, so new stars are on the LAST page.\n// Read the page count from the RFC-5988 Link header instead of paginating.\n// Also surface the primary rate-limit budget for the guard below.\nconst res = $input.first().json;\nconst headers = res.headers || {};\nconst link = headers.link || headers.Link || '';\nconst m = link.match(/[?&]page=(\\d+)>;\\s*rel=\"last\"/);\nconst remaining = parseInt(headers['x-ratelimit-remaining'] ?? '9999', 10);\nconst lastPage = m ? parseInt(m[1], 10) : 1;\nconsole.log('[lead-sniper] discovery: lastPage=' + lastPage + ' rateRemaining=' + remaining);\nreturn [{ json: { lastPage, rateRemaining: remaining } }];"
       },
-      "id": "11111111-0000-0000-0000-000000000005",
+      "id": "0765f5ea-ff56-4151-810a-549a1fd41161",
       "name": "Resolve Last Page",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [720, 240]
+      "position": [
+        -176,
+        464
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
           "combinator": "and",
           "conditions": [
             {
               "id": "guard-1",
               "leftValue": "={{ $json.rateRemaining }}",
               "rightValue": "={{ $('Load Sync State').first().json.minRateRemaining }}",
-              "operator": { "type": "number", "operation": "gte" }
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
             }
           ]
         },
         "options": {}
       },
-      "id": "11111111-0000-0000-0000-000000000015",
+      "id": "92d9c026-61ef-4b67-8e44-61d4ed7b29b8",
       "name": "Guard: Rate Budget OK",
       "type": "n8n-nodes-base.filter",
       "typeVersion": 2,
-      "position": [940, 240]
+      "position": [
+        48,
+        464
+      ]
     },
     {
       "parameters": {
@@ -137,36 +215,59 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Accept", "value": "application/vnd.github.star+json" },
-            { "name": "X-GitHub-Api-Version", "value": "2026-03-10" },
-            { "name": "If-None-Match", "value": "={{ $('Load Sync State').first().json.stargazersEtag }}" }
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.star+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2026-03-10"
+            },
+            {
+              "name": "If-None-Match",
+              "value": "={{ $('Load Sync State').first().json.stargazersEtag }}"
+            }
           ]
         },
         "options": {
-          "response": { "response": { "fullResponse": true, "neverError": true } }
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
         }
       },
-      "id": "11111111-0000-0000-0000-000000000006",
+      "id": "52f3b481-7e0b-40e6-a89c-7dd7202fc9c0",
       "name": "Poll Stargazers (conditional)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1160, 240],
+      "position": [
+        272,
+        464
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
       "credentials": {
-        "httpHeaderAuth": { "id": "REPLACE_GITHUB", "name": "GitHub PAT (Header Auth)" }
+        "httpHeaderAuth": {
+          "id": "REPLACE_GITHUB",
+          "name": "GitHub PAT (Header Auth)"
+        }
       }
     },
     {
       "parameters": {
-        "jsCode": "// Handle the conditional response from the stargazer poll.\nconst store = $getWorkflowStaticData('global');\nconst res = $input.first().json;\nconst status = res.statusCode || 200;\nconst headers = res.headers || {};\n\n// 304 Not Modified: nothing starred since last poll. This response does not\n// consume the primary REST rate limit. End the cycle.\nif (status === 304) {\n  console.log('[lead-sniper] 304 Not Modified: no new stars, ending cycle');\n  return [];\n}\n\n// Rate limited (secondary/abuse or primary exhausted mid-cycle): log the reset\n// hint and end the cycle. The next scheduled run retries; we deliberately do\n// not block this execution on a long Wait.\nif (status === 403 || status === 429) {\n  console.log('[lead-sniper] ' + status + ' rate limited. retry-after=' +\n    (headers['retry-after'] || 'n/a') + ' x-ratelimit-reset=' +\n    (headers['x-ratelimit-reset'] || 'n/a') + '. Skipping this cycle.');\n  return [];\n}\n\nif (status >= 400) {\n  console.log('[lead-sniper] unexpected status ' + status + ' from stargazer poll, ending cycle');\n  return [];\n}\n\n// Save the new ETag for next run's conditional request.\nconst newEtag = headers.etag || headers.ETag;\nif (newEtag) store.stargazersEtag = newEtag;\n\nconst body = Array.isArray(res.body) ? res.body : [];\nconst prev = store.lastStarredAt ? new Date(store.lastStarredAt) : null;\n\n// Advance the watermark to the newest star we can see this poll.\nlet newest = prev || new Date(0);\nfor (const it of body) {\n  const t = new Date(it.starred_at);\n  if (t > newest) newest = t;\n}\nstore.lastStarredAt = newest.toISOString();\n\n// First run has no watermark: record the baseline and emit nothing. Genuinely\n// new stars are picked up on the next poll. No back-seeding of existing stars.\nif (!prev) {\n  console.log('[lead-sniper] baseline run: recorded watermark ' + store.lastStarredAt + ', emitting 0');\n  return [];\n}\n\nconst fresh = body.filter((it) => new Date(it.starred_at) > prev);\nconsole.log('[lead-sniper] ' + fresh.length + ' new stargazer(s) since ' + prev.toISOString());\nreturn fresh.map((it) => ({\n  json: { login: it.user.login, starred_at: it.starred_at }\n}));"
+        "jsCode": "// Handle the conditional response from the stargazer poll.\nconst store = $getWorkflowStaticData('global');\nconst res = $input.first().json;\nconst status = res.statusCode || 200;\nconst headers = res.headers || {};\n\nif (status === 304) {\n  console.log('[lead-sniper] 304 Not Modified: no new stars, ending cycle');\n  return [];\n}\nif (status === 403 || status === 429) {\n  console.log('[lead-sniper] ' + status + ' rate limited. retry-after=' +\n    (headers['retry-after'] || 'n/a') + ' x-ratelimit-reset=' +\n    (headers['x-ratelimit-reset'] || 'n/a') + '. Skipping this cycle.');\n  return [];\n}\nif (status >= 400) {\n  console.log('[lead-sniper] unexpected status ' + status + ', ending cycle');\n  return [];\n}\n\nconst newEtag = headers.etag || headers.ETag;\nif (newEtag) store.stargazersEtag = newEtag;\n\nconst body = Array.isArray(res.body) ? res.body : [];\n\n// Stored watermark if we have one; else an epoch floor so the current\n// stargazers are processed (n8n Cloud does not persist static data across\n// manual editor runs).\nconst since = store.lastStarredAt ? new Date(store.lastStarredAt) : new Date(0);\n\nlet newest = since;\nfor (const it of body) {\n  const t = new Date(it.starred_at);\n  if (t > newest) newest = t;\n}\nstore.lastStarredAt = newest.toISOString();\n\nconst fresh = body.filter((it) => new Date(it.starred_at) > since);\nconsole.log('[lead-sniper] ' + fresh.length + ' new stargazer(s) since ' + since.toISOString());\nreturn fresh.map((it) => ({\n  json: { login: it.user.login, starred_at: it.starred_at }\n}));"
       },
-      "id": "11111111-0000-0000-0000-000000000007",
+      "id": "d5516aa7-ffec-4e22-8608-bd138713c4e5",
       "name": "Filter New Stargazers",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1380, 240]
+      "position": [
+        480,
+        464
+      ]
     },
     {
       "parameters": {
@@ -176,96 +277,129 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Accept", "value": "application/vnd.github+json" },
-            { "name": "X-GitHub-Api-Version", "value": "2026-03-10" }
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2026-03-10"
+            }
           ]
         },
         "options": {
-          "batching": { "batch": { "batchSize": 1, "batchInterval": 1500 } }
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          }
         }
       },
-      "id": "11111111-0000-0000-0000-000000000008",
+      "id": "7d5e42fb-13e4-4628-a3d4-7d4c75b9f1fb",
       "name": "Enrich: Get User Profile",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1600, 240],
+      "position": [
+        704,
+        464
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
-      "onError": "continueRegularOutput",
       "credentials": {
-        "httpHeaderAuth": { "id": "REPLACE_GITHUB", "name": "GitHub PAT (Header Auth)" }
-      }
+        "httpHeaderAuth": {
+          "id": "REPLACE_GITHUB",
+          "name": "GitHub PAT (Header Auth)"
+        }
+      },
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
-          "combinator": "or",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
           "conditions": [
             {
               "id": "hv-1",
               "leftValue": "={{ $json.followers }}",
               "rightValue": "={{ $('Load Sync State').first().json.minFollowers }}",
-              "operator": { "type": "number", "operation": "gt" }
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
             },
             {
               "id": "hv-2",
               "leftValue": "={{ $json.public_repos }}",
               "rightValue": "={{ $('Load Sync State').first().json.minPublicRepos }}",
-              "operator": { "type": "number", "operation": "gt" }
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
             }
-          ]
+          ],
+          "combinator": "or"
         },
         "options": {}
       },
-      "id": "11111111-0000-0000-0000-000000000009",
+      "id": "96dc1f83-b5e2-4298-a7d9-a0c3e3f3fc06",
       "name": "Filter: High-Value Lead",
       "type": "n8n-nodes-base.filter",
       "typeVersion": 2,
-      "position": [1820, 240]
+      "position": [
+        928,
+        464
+      ]
     },
     {
       "parameters": {
-        "resource": "text",
-        "operation": "message",
-        "modelId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "={{ $('Load Sync State').first().json.openAiModel }}"
-        },
-        "messages": {
-          "values": [
-            { "role": "system", "content": "You are a senior sales development rep at a developer-tools company. In ONE sentence of at most 30 words, say why this GitHub user is worth reaching out to as a sales lead. No greeting, no preamble, no quotes." },
-            { "role": "user", "content": "=Name: {{ $json.name || $json.login }}\nCompany: {{ $json.company || 'unknown' }}\nBio: {{ $json.bio || 'none' }}\nFollowers: {{ $json.followers }}\nPublic repos: {{ $json.public_repos }}" }
-          ]
-        },
-        "simplify": true,
-        "options": { "temperature": 0.7, "maxTokens": 80 }
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"{{ $('Load Sync State').first().json.openAiModel }}\",\n  \"temperature\": 0.7,\n  \"max_tokens\": 150,\n  \"messages\": [\n    { \"role\": \"system\", \"content\": \"You are a senior sales development rep at a developer-tools company. In ONE sentence of at most 30 words, say why this GitHub user is worth reaching out to as a sales lead. No greeting, no preamble, no quotes.\" },\n    { \"role\": \"user\", \"content\": \"Name: {{ ($json.name || $json.login) }} | Company: {{ ($json.company || 'unknown') }} | Bio: {{ ($json.bio || 'none').toString().replace(/[\\\"\\n\\r]/g,' ') }} | Followers: {{ $json.followers }} | Public repos: {{ $json.public_repos }}\" }\n  ]\n}",
+        "options": {}
       },
-      "id": "11111111-0000-0000-0000-000000000010",
+      "id": "970db078-c90e-4228-bad1-965aa0664358",
       "name": "Generate Sales Pitch",
-      "type": "@n8n/n8n-nodes-langchain.openAi",
-      "typeVersion": 1.8,
-      "position": [2040, 240],
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1152,
+        464
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
-      "onError": "continueRegularOutput",
       "credentials": {
-        "openAiApi": { "id": "REPLACE_OPENAI", "name": "OpenAi account" }
-      }
+        "httpHeaderAuth": {
+          "id": "REPLACE_LLM",
+          "name": "LLM API (Header Auth)"
+        }
+      },
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
         "jsCode": "// Merge the enriched GitHub profile with the AI pitch into a Slack payload.\n// name / company / bio are user-controlled, so escape before putting them in mrkdwn.\nfunction esc(v) {\n  return String(v == null ? '' : v)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/([*_~`|])/g, '\\u200b$1');\n}\n\nconst user = $('Enrich: Get User Profile').item.json;\nconst ai = $json || {};\nconst pitchRaw = (ai.message && ai.message.content) || ai.text || ai.content ||\n  (ai.choices && ai.choices[0] && ai.choices[0].message && ai.choices[0].message.content) || '';\nconst pitch = esc(String(pitchRaw).trim()) || '(pitch unavailable)';\nconst cfg = $('Load Sync State').first().json;\nconst header = ':dart: New high-value lead starred ' + cfg.repoOwner + '/' + cfg.repoName;\nconsole.log('[lead-sniper] qualified lead ' + (user.login) + ' followers=' + user.followers +\n  ' public_repos=' + user.public_repos + ' -> posting to Slack');\n\nreturn {\n  json: {\n    text: header,\n    blocks: [\n      { type: 'section', text: { type: 'mrkdwn', text: '*' + header + '*' } },\n      { type: 'section', fields: [\n        { type: 'mrkdwn', text: '*Name:*\\n' + esc(user.name || user.login) },\n        { type: 'mrkdwn', text: '*Company:*\\n' + esc(user.company || '-') },\n        { type: 'mrkdwn', text: '*Followers:*\\n' + user.followers },\n        { type: 'mrkdwn', text: '*Public repos:*\\n' + user.public_repos }\n      ] },\n      { type: 'section', text: { type: 'mrkdwn', text: '*Bio:*\\n' + esc(user.bio || '-') } },\n      { type: 'section', text: { type: 'mrkdwn', text: '*AI sales pitch:*\\n' + pitch } },\n      { type: 'context', elements: [ { type: 'mrkdwn', text: '<https://github.com/' + encodeURIComponent(user.login) + '|github.com/' + esc(user.login) + '>' } ] }\n    ]\n  }\n};"
       },
-      "id": "11111111-0000-0000-0000-000000000011",
+      "id": "31ff9352-778b-40d4-9345-c359e3730351",
       "name": "Build Slack Message",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2260, 240]
+      "position": [
+        1360,
+        464
+      ]
     },
     {
       "parameters": {
@@ -276,33 +410,158 @@
         "jsonBody": "={{ JSON.stringify({ text: $json.text, blocks: $json.blocks }) }}",
         "options": {}
       },
-      "id": "11111111-0000-0000-0000-000000000012",
+      "id": "2fa337da-32c0-446d-b08e-24e49148d436",
       "name": "Post to Slack",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2480, 240],
+      "position": [
+        1584,
+        464
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000
     }
   ],
+  "pinData": {},
   "connections": {
-    "Schedule Trigger": { "main": [ [ { "node": "Set Config", "type": "main", "index": 0 } ] ] },
-    "Set Config": { "main": [ [ { "node": "Load Sync State", "type": "main", "index": 0 } ] ] },
-    "Load Sync State": { "main": [ [ { "node": "Discover Last Page", "type": "main", "index": 0 } ] ] },
-    "Discover Last Page": { "main": [ [ { "node": "Resolve Last Page", "type": "main", "index": 0 } ] ] },
-    "Resolve Last Page": { "main": [ [ { "node": "Guard: Rate Budget OK", "type": "main", "index": 0 } ] ] },
-    "Guard: Rate Budget OK": { "main": [ [ { "node": "Poll Stargazers (conditional)", "type": "main", "index": 0 } ] ] },
-    "Poll Stargazers (conditional)": { "main": [ [ { "node": "Filter New Stargazers", "type": "main", "index": 0 } ] ] },
-    "Filter New Stargazers": { "main": [ [ { "node": "Enrich: Get User Profile", "type": "main", "index": 0 } ] ] },
-    "Enrich: Get User Profile": { "main": [ [ { "node": "Filter: High-Value Lead", "type": "main", "index": 0 } ] ] },
-    "Filter: High-Value Lead": { "main": [ [ { "node": "Generate Sales Pitch", "type": "main", "index": 0 } ] ] },
-    "Generate Sales Pitch": { "main": [ [ { "node": "Build Slack Message", "type": "main", "index": 0 } ] ] },
-    "Build Slack Message": { "main": [ [ { "node": "Post to Slack", "type": "main", "index": 0 } ] ] }
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Config": {
+      "main": [
+        [
+          {
+            "node": "Load Sync State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Sync State": {
+      "main": [
+        [
+          {
+            "node": "Discover Last Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discover Last Page": {
+      "main": [
+        [
+          {
+            "node": "Resolve Last Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Last Page": {
+      "main": [
+        [
+          {
+            "node": "Guard: Rate Budget OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard: Rate Budget OK": {
+      "main": [
+        [
+          {
+            "node": "Poll Stargazers (conditional)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll Stargazers (conditional)": {
+      "main": [
+        [
+          {
+            "node": "Filter New Stargazers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter New Stargazers": {
+      "main": [
+        [
+          {
+            "node": "Enrich: Get User Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich: Get User Profile": {
+      "main": [
+        [
+          {
+            "node": "Filter: High-Value Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: High-Value Lead": {
+      "main": [
+        [
+          {
+            "node": "Generate Sales Pitch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Sales Pitch": {
+      "main": [
+        [
+          {
+            "node": "Build Slack Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Slack Message": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "active": false,
-  "settings": { "executionOrder": "v1" },
-  "pinData": {},
-  "meta": {},
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
   "tags": []
 }

@@ -23,7 +23,7 @@ Schedule (15 min)
   -> Filter New Stargazers   (baseline on first run; then watermark on starred_at; save new ETag)
   -> Enrich: Get User Profile   (/users/{login}, serialised 1 / 1.5s, retry 3x)
   -> Filter: High-Value Lead    (followers > 100 OR public_repos > 50)
-  -> Generate Sales Pitch       (native OpenAI node, 1 sentence)
+  -> Generate Sales Pitch       (HTTP POST to an OpenAI-compatible chat API, 1 sentence)
   -> Build Slack Message        (Block Kit payload, bio escaped for mrkdwn)
   -> Post to Slack              (webhook URL from $env.SLACK_WEBHOOK_URL)
 ```
@@ -37,61 +37,57 @@ simpler and real-time, but the assignment specifically asks how API rate limits
 were handled, and polling is where that question has an answer. The webhook is
 noted as the production trigger in `LOGIC_LOG.md`.
 
-## Which workflow file
+## The pitch step (LLM)
 
-- **`lead-sniper.workflow.json`** - primary. `Generate Sales Pitch` is n8n's
-  native **OpenAI** node (clearer on the canvas). Needs an **OpenAi account**
-  credential.
-- **`lead-sniper.workflow.http-openai.json`** - fallback, identical except
-  `Generate Sales Pitch` is a plain **HTTP Request** to
-  `POST /v1/chat/completions`. Use this if the native node shows a version or
-  parameter warning on import (n8n shipped a V2 OpenAI node in 1.117.0). Needs an
-  **OpenAI (Header Auth)** credential (`Authorization: Bearer sk-...`).
+`Generate Sales Pitch` is a plain **HTTP Request** to an OpenAI-compatible
+`chat/completions` endpoint, so any provider works by changing three things:
+the node **URL**, the **Header Auth** credential (`Authorization: Bearer <key>`),
+and `openAiModel` in **Set Config**.
 
-Both behave the same; `Build Slack Message` reads either output shape.
+Tested with **Groq** (`https://api.groq.com/openai/v1/chat/completions`,
+model `qwen/qwen3.8-27b`) because it has a free tier. For OpenAI, use
+`https://api.openai.com/v1/chat/completions` + an `sk-...` key + e.g.
+`gpt-4o-mini`.
 
 ## Import
 
 1. In n8n: **Workflows -> Import from File -> `lead-sniper.workflow.json`**
-   (or the `http-openai` variant).
 2. Open **Set Config** and set:
    - `repoOwner` / `repoName` - **a repo you admin** (e.g.
      `Shaurya55555` / `yellowai-lead-sniper-demo`)
    - `minFollowers` / `minPublicRepos` - defaults 100 / 50
    - `minRateRemaining` - default 100
-   - `openAiModel` - default `gpt-4o-mini`; change here, not in the node
-3. Set an environment variable on the n8n instance:
-   - `SLACK_WEBHOOK_URL` - your Slack Incoming Webhook URL. Read by
-     *Post to Slack* as `{{ $env.SLACK_WEBHOOK_URL }}`; it is never stored in the
-     workflow JSON.
+   - `openAiModel` - default `qwen/qwen3.8-27b` (Groq); change here, not in the node
+3. Slack webhook:
+   - Local n8n: set env var `SLACK_WEBHOOK_URL`; *Post to Slack* reads
+     `{{ $env.SLACK_WEBHOOK_URL }}`.
+   - n8n Cloud (`$env` is blocked): add an n8n **Variable** `SLACK_WEBHOOK_URL`
+     and change *Post to Slack* URL to `{{ $vars.SLACK_WEBHOOK_URL }}`, or paste
+     the URL directly and remove it before exporting.
 4. Create credentials:
    - **GitHub PAT (Header Auth)** (Credentials -> New -> **Header Auth**) - name
-     `Authorization`, value `Bearer ghp_xxx` (classic PAT, `repo` scope).
+     `Authorization`, value `Bearer <token>` (classic PAT `repo` scope, or a
+     `gho_` token from `gh auth token`).
      Assign to: *Discover Last Page*, *Poll Stargazers (conditional)*,
      *Enrich: Get User Profile*.
-   - **OpenAi account** (Credentials -> New -> **OpenAI**) - your OpenAI API key.
+   - **LLM API (Header Auth)** (Credentials -> New -> **Header Auth**) - name
+     `Authorization`, value `Bearer <key>` (a free Groq key from
+     `console.groq.com`, or an OpenAI `sk-...` key).
      Assign to: *Generate Sales Pitch*.
 
 ## Run / test
 
-The first run is a **baseline** run:
+See `DEMO.md` for the full sequence. Short version:
 
-1. Click **Execute Workflow**. With no stored watermark, *Filter New Stargazers*
-   records the current newest star and emits nothing. This is expected: zero
-   Slack messages on run 1.
-2. Star the repo from a second GitHub account (ideally one with > 100 followers
-   or > 50 public repos so it passes the filter).
-3. **Execute Workflow** again. The new star is now newer than the watermark, so
-   it flows through enrichment -> filter -> pitch -> Slack.
-4. Activate the workflow to poll every 15 minutes.
-
-### Tips for the demo
-
-- Lower `minFollowers` to `0` for one run if your second account does not clear
-  the threshold.
-- `Generate Sales Pitch` uses the native n8n **OpenAI** node (resource *Text*,
-  operation *Message a model*). Swap the model in that node if `gpt-4o-mini` is
-  not enabled on your key.
+1. **Execute Workflow** once. With no stored watermark it processes the current
+   stargazers (n8n Cloud does not persist static data between manual runs, so it
+   falls back to an epoch floor). On an empty repo this emits nothing.
+2. Star the repo. **Execute** again -> the star flows through enrichment ->
+   filter -> pitch -> Slack (if it clears `followers > 100 OR public_repos > 50`).
+3. Lower `minFollowers` / `minPublicRepos` for a run if your account does not
+   clear the threshold, to exercise the qualifying path.
+4. Activate the workflow to poll every 15 minutes (production runs do persist the
+   watermark).
 
 ## Swap Slack for Discord
 
@@ -105,8 +101,7 @@ return { json: { content: header + "\n" + pitch + "\n<https://github.com/" + use
 ## Files
 
 ```
-lead-sniper.workflow.json              primary n8n workflow (native OpenAI node)
-lead-sniper.workflow.http-openai.json  fallback (HTTP Request to OpenAI), same behaviour
+lead-sniper.workflow.json              the n8n workflow (import this)
 LOGIC_LOG.md                           required deliverable: GitHub rate-limit handling
 DEMO.md                                recording plan and shot list
 verify/                                Python re-implementation used to validate the

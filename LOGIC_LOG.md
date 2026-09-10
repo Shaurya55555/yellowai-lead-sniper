@@ -19,6 +19,10 @@ stars that repository from a second account.
 All GitHub calls pin `X-GitHub-Api-Version: 2026-03-10` (the current REST API
 version) for reproducibility.
 
+The pitch step is a plain HTTP call to an OpenAI-compatible `chat/completions`
+endpoint (tested against Groq's free tier, model `qwen/qwen3.8-27b`); swap the
+URL, key and `openAiModel` for any other provider.
+
 ## Layer 1 - Authenticate: raise the primary ceiling
 
 Every GitHub call carries `Authorization: Bearer <PAT>` through an n8n Header
@@ -58,7 +62,11 @@ Steady state for a low-traffic repo: most 15-minute polls are free.
   `GET /users/{login}` enrichment fires for genuinely new users only.
   **Limitation:** this assumes fewer than one page (100) of new stars arrive
   between two polls. A production version would page backward until it reaches
-  the watermark, or drop polling for a webhook (see end).
+  the watermark, or drop polling for a webhook (see end). When no watermark is
+  stored - a genuine first run, or n8n Cloud not persisting static data across
+  manual editor executions - it falls back to an epoch floor and processes the
+  current stargazers; scheduled (production) runs persist the watermark
+  normally.
 
 ## Layer 4 - Defend the remainder
 
