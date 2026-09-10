@@ -109,9 +109,16 @@ lead-sniper.workflow.json              primary n8n workflow (native OpenAI node)
 lead-sniper.workflow.http-openai.json  fallback (HTTP Request to OpenAI), same behaviour
 LOGIC_LOG.md                           required deliverable: GitHub rate-limit handling
 DEMO.md                                recording plan and shot list
+verify/                                Python re-implementation used to validate the
+                                       pipeline against the live GitHub API (not a deliverable)
 docs/message-example.md                sample of the Slack card this produces
 docs/BUILD_VS_GPT.md                   design-decision comparison notes
 ```
+
+The pipeline logic (conditional requests / 304, watermark, `Link` paging,
+enrichment, the `followers > 100 OR public_repos > 50` filter, Slack payload)
+was run end to end against the real GitHub API on 2026-09-11; transcripts in
+`verify/SAMPLE_RUN.md`.
 
 ## Deliverables checklist
 
