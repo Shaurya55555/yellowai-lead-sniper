@@ -8,11 +8,16 @@ retry rules.
 ## GitHub API compatibility note
 
 GitHub restricted the public stargazer-listing endpoint
-(`GET /repos/{owner}/{repo}/stargazers`) in July 2026: it now works only for
-callers who are an **admin or collaborator** on the repository. Requests for
-other repositories return `404`. This workflow therefore points at a repository
-the workflow owner controls (`Set Config` -> `repoOwner` / `repoName`), and the
-demonstration stars that repository from a second account.
+(`GET /repos/{owner}/{repo}/stargazers`) in July 2026: it is now limited to
+callers who are an **admin or collaborator** on the repository. An unauthorised
+caller gets an authorisation failure, and GitHub may answer `404` rather than
+confirm the resource exists. A direct test against `n8n-io/n8n` with a normal
+PAT returned `404`. This workflow therefore points at a repository the workflow
+owner controls (`Set Config` -> `repoOwner` / `repoName`), and the demonstration
+stars that repository from a second account.
+
+All GitHub calls pin `X-GitHub-Api-Version: 2026-03-10` (the current REST API
+version) for reproducibility.
 
 ## Layer 1 - Authenticate: raise the primary ceiling
 
@@ -72,14 +77,24 @@ here is a GET, so the spacing is purely precautionary.
 | Secondary / abuse limit | `403` or `429` with `Retry-After` | honour `Retry-After`; if absent, back off and retry, escalating if it persists |
 | Primary quota exhausted | `X-RateLimit-Remaining: 0` | do **not** retry on a fixed timer; wait until `X-RateLimit-Reset` |
 
-**What the workflow automates today:** the fixed 3x/5s retry-on-fail on every
-HTTP node (covers the transient case), and a pre-flight guard,
-*Guard: Rate Budget OK*, which reads `X-RateLimit-Remaining` from the discovery
-response and skips the whole cycle when it is below `minRateRemaining` (default
-100) so the primary quota is never pushed to zero. Dynamic `Retry-After` /
-`X-RateLimit-Reset` waiting is designed for as above but is not fully automated
-in n8n's built-in retry (it retries on a fixed delay); a header-aware wait node
-would close that gap.
+**What the workflow does today, node by node:**
+
+- **Transient errors:** fixed 3x / 5 s retry-on-fail on every HTTP node.
+- **Primary budget:** *Guard: Rate Budget OK* reads `X-RateLimit-Remaining` from
+  the discovery response and skips the whole cycle when it is below
+  `minRateRemaining` (default 100), so the quota is never pushed to zero.
+- **`403` / `429` on the poll:** *Filter New Stargazers* inspects the status,
+  logs `Retry-After` and `X-RateLimit-Reset`, and ends the cycle. The next
+  scheduled run (15 min later) re-polls, which for a scheduled workflow is a
+  cleaner recovery than blocking one execution on a long `Wait`.
+- **`403` / `429` or any error on enrichment:** the node has
+  `onError: continueRegularOutput`, so one failed user is passed through without
+  a `followers` / `public_repos` field and is dropped by *Filter: High-Value
+  Lead*. The other users in the batch are unaffected.
+
+This is a deliberate "detect, log, defer to the next tick" model rather than an
+in-execution retry loop. A production version behind a webhook (see below) would
+instead honour `Retry-After` inline.
 
 ## Budget, worst case per 15-minute run
 

@@ -41,3 +41,24 @@ self-evidently a real event, not a staged screen.
 Run the workflow once more with no new star and show the
 `[lead-sniper] 304 Not Modified: no new stars, ending cycle` line. That proves
 the conditional-request path works, which is the core of the Logic Log.
+
+## Extra paths worth showing (pick what fits the time)
+
+- **Non-qualifying lead:** star from an account with < 100 followers and < 50
+  public repos. Show it reaching *Filter: High-Value Lead* and being dropped
+  (no Slack message).
+- **304 / no change:** covered by the quiet-path take above.
+
+## Before you export and submit the workflow JSON
+
+Re-export from n8n, then search the file and confirm none of these appear as a
+real value (placeholders in the sticky notes are fine):
+
+```
+hooks.slack.com      ghp_<realchars>      github_pat_
+sk-<realchars>       xoxb-                 Bearer <realtoken>
+```
+
+The GitHub PAT and OpenAI key live in n8n credentials (exported as
+`{ id, name }` references), and the Slack URL is read from
+`$env.SLACK_WEBHOOK_URL`, so a clean export has no secret material in it.

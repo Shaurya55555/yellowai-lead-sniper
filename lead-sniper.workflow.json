@@ -15,9 +15,9 @@
     },
     {
       "parameters": {
-        "content": "### Rate-limit strategy (see LOGIC_LOG.md)\n\n1. **Authenticate** - PAT via Header Auth -> 5,000 req/h instead of 60.\n2. **Conditional request** - `If-None-Match: <etag>` on the stargazer poll. Nothing new -> **HTTP 304**, which does not consume the primary REST rate limit. `neverError` keeps 304 from failing the node.\n3. **Structural minimisation** - `Link: rel=\"last\"` header -> request the newest page instead of hard-coding page 1. `Accept: application/vnd.github.star+json` -> get `starred_at`. `lastStarredAt` watermark -> enrich only genuinely new users. Assumes < 1 page (100) of new stars per poll.\n4. **Defend the rest** - `/users/{login}` serialised at 1 req / 1500 ms as a conservative burst safeguard; retry-on-fail 3x/5s for transient errors; skip the cycle if `X-RateLimit-Remaining` < `minRateRemaining`; and *Filter New Stargazers* detects a `403`/`429` on the poll, logs `Retry-After` / `X-RateLimit-Reset`, and skips the cycle (next schedule retries).\n\nCode nodes `console.log` a `[lead-sniper]` trace line so the execution reads top to bottom during a demo.",
-        "height": 420,
-        "width": 480
+        "content": "### Rate-limit strategy (see LOGIC_LOG.md)\n\n1. **Authenticate** - PAT via Header Auth -> 5,000 req/h instead of 60.\n2. **Conditional request** - `If-None-Match: <etag>` on the stargazer poll. Nothing new -> **HTTP 304**, which does not consume the primary REST rate limit. `neverError` keeps 304 from failing the node.\n3. **Structural minimisation** - `Link: rel=\"last\"` header -> request the newest page instead of hard-coding page 1. `Accept: application/vnd.github.star+json` -> get `starred_at`. `lastStarredAt` watermark -> enrich only genuinely new users. Assumes < 1 page (100) of new stars per poll.\n4. **Defend the rest** - `/users/{login}` serialised at 1 req / 1500 ms as a conservative burst safeguard; retry-on-fail 3x/5s for transient errors; skip the cycle if `X-RateLimit-Remaining` < `minRateRemaining`; *Filter New Stargazers* detects `403`/`429` on the poll, logs `Retry-After` / `X-RateLimit-Reset` and skips the cycle; and enrichment uses `onError: continue` so one failed user is dropped by the high-value filter without failing the run.\n\nCode nodes `console.log` a `[lead-sniper]` trace line so the execution reads top to bottom during a demo. GitHub calls pin `X-GitHub-Api-Version: 2026-03-10`.",
+        "height": 440,
+        "width": 490
       },
       "id": "11111111-0000-0000-0000-000000000013",
       "name": "Rate-limit notes",
@@ -78,7 +78,7 @@
         "headerParameters": {
           "parameters": [
             { "name": "Accept", "value": "application/vnd.github.star+json" },
-            { "name": "X-GitHub-Api-Version", "value": "2022-11-28" }
+            { "name": "X-GitHub-Api-Version", "value": "2026-03-10" }
           ]
         },
         "options": {
@@ -138,7 +138,7 @@
         "headerParameters": {
           "parameters": [
             { "name": "Accept", "value": "application/vnd.github.star+json" },
-            { "name": "X-GitHub-Api-Version", "value": "2022-11-28" },
+            { "name": "X-GitHub-Api-Version", "value": "2026-03-10" },
             { "name": "If-None-Match", "value": "={{ $('Load Sync State').first().json.stargazersEtag }}" }
           ]
         },
@@ -177,7 +177,7 @@
         "headerParameters": {
           "parameters": [
             { "name": "Accept", "value": "application/vnd.github+json" },
-            { "name": "X-GitHub-Api-Version", "value": "2022-11-28" }
+            { "name": "X-GitHub-Api-Version", "value": "2026-03-10" }
           ]
         },
         "options": {
@@ -192,6 +192,7 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
       "credentials": {
         "httpHeaderAuth": { "id": "REPLACE_GITHUB", "name": "GitHub PAT (Header Auth)" }
       }
