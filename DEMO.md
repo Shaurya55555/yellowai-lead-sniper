@@ -11,9 +11,12 @@ self-evidently a real event, not a staged screen.
 
 ## Before you hit record
 
-1. n8n running, `lead-sniper.workflow.json` imported.
-2. Credentials assigned: **GitHub PAT (Header Auth)** on the 3 GitHub nodes,
-   **OpenAi account** on *Generate Sales Pitch*.
+1. n8n running, `lead-sniper.workflow.json` imported. If the *Generate Sales
+   Pitch* (OpenAI) node shows a version/parameter warning, delete the import and
+   use `lead-sniper.workflow.http-openai.json` instead (identical behaviour).
+2. Credentials assigned: **GitHub PAT (Header Auth)** on the 3 GitHub nodes, and
+   on *Generate Sales Pitch* either **OpenAi account** (primary file) or
+   **OpenAI (Header Auth)** (http-openai file).
 3. Env var `SLACK_WEBHOOK_URL` set on the n8n instance.
 4. `Set Config` -> `repoOwner` / `repoName` = your demo repo
    (`Shaurya55555/yellowai-lead-sniper-demo`).

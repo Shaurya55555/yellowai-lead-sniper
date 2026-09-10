@@ -37,9 +37,23 @@ simpler and real-time, but the assignment specifically asks how API rate limits
 were handled, and polling is where that question has an answer. The webhook is
 noted as the production trigger in `LOGIC_LOG.md`.
 
+## Which workflow file
+
+- **`lead-sniper.workflow.json`** - primary. `Generate Sales Pitch` is n8n's
+  native **OpenAI** node (clearer on the canvas). Needs an **OpenAi account**
+  credential.
+- **`lead-sniper.workflow.http-openai.json`** - fallback, identical except
+  `Generate Sales Pitch` is a plain **HTTP Request** to
+  `POST /v1/chat/completions`. Use this if the native node shows a version or
+  parameter warning on import (n8n shipped a V2 OpenAI node in 1.117.0). Needs an
+  **OpenAI (Header Auth)** credential (`Authorization: Bearer sk-...`).
+
+Both behave the same; `Build Slack Message` reads either output shape.
+
 ## Import
 
-1. In n8n: **Workflows -> Import from File -> `lead-sniper.workflow.json`**.
+1. In n8n: **Workflows -> Import from File -> `lead-sniper.workflow.json`**
+   (or the `http-openai` variant).
 2. Open **Set Config** and set:
    - `repoOwner` / `repoName` - **a repo you admin** (e.g.
      `Shaurya55555` / `yellowai-lead-sniper-demo`)
@@ -91,11 +105,12 @@ return { json: { content: header + "\n" + pitch + "\n<https://github.com/" + use
 ## Files
 
 ```
-lead-sniper.workflow.json   the importable n8n workflow
-LOGIC_LOG.md                required deliverable: how GitHub rate limits are handled
-DEMO.md                     recording plan and shot list
-docs/message-example.md     sample of the Slack card this produces
-docs/BUILD_VS_GPT.md        design-decision comparison notes
+lead-sniper.workflow.json              primary n8n workflow (native OpenAI node)
+lead-sniper.workflow.http-openai.json  fallback (HTTP Request to OpenAI), same behaviour
+LOGIC_LOG.md                           required deliverable: GitHub rate-limit handling
+DEMO.md                                recording plan and shot list
+docs/message-example.md                sample of the Slack card this produces
+docs/BUILD_VS_GPT.md                   design-decision comparison notes
 ```
 
 ## Deliverables checklist
