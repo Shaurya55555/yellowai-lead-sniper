@@ -8,6 +8,28 @@ your repo without your token and access. So `lead-sniper.workflow.json` is a
 read-only artifact for them, and the **recording plus the Slack screenshot are
 the actual proof** it works end to end.
 
+## Two configuration notes (read before recording / grading)
+
+**Watermark persistence.** n8n Cloud does **not** persist workflow static data
+(`stargazersEtag`, `lastStarredAt`) across **manual editor executions** - only
+across **scheduled/active** executions. So *Filter New Stargazers* falls back to
+an epoch floor and processes the current stargazers when no watermark is stored.
+This makes manual testing deterministic; an activated schedule persists the
+watermark and emits only genuinely new stars. To demonstrate the persisted path,
+activate the workflow (optionally drop the Schedule Trigger to 1 minute), let one
+run establish the baseline, star the repo, and let the next scheduled run detect
+just that star.
+
+**Slack webhook: runtime vs. exported artifact.** The submitted
+`lead-sniper.workflow.json` uses `{{ $env.SLACK_WEBHOOK_URL }}` as a
+secret-free placeholder. n8n Cloud blocks `$env`, so for a live run either
+(a) create an n8n **Variable** `SLACK_WEBHOOK_URL` and change *Post to Slack* to
+`{{ $vars.SLACK_WEBHOOK_URL }}`, or (b) paste the webhook URL directly into the
+node in **Fixed** mode. The tests in this repo were run with the URL pasted
+directly; the export was then switched back to the `$env` placeholder. The
+exported config is therefore intentionally not byte-identical to the tested
+runtime - only the Slack URL field differs.
+
 ## Before you hit record
 
 1. n8n Cloud instance, `lead-sniper.workflow.json` imported.

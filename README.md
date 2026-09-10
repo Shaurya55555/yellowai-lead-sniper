@@ -39,15 +39,25 @@ noted as the production trigger in `LOGIC_LOG.md`.
 
 ## The pitch step (LLM)
 
-`Generate Sales Pitch` is a plain **HTTP Request** to an OpenAI-compatible
+`Generate Sales Pitch` is a plain **HTTP Request** to an **OpenAI-compatible**
 `chat/completions` endpoint, so any provider works by changing three things:
 the node **URL**, the **Header Auth** credential (`Authorization: Bearer <key>`),
 and `openAiModel` in **Set Config**.
 
-Tested with **Groq** (`https://api.groq.com/openai/v1/chat/completions`,
-model `qwen/qwen3.8-27b`) because it has a free tier. For OpenAI, use
+The demonstration uses **Groq**
+(`https://api.groq.com/openai/v1/chat/completions`, model `qwen/qwen3.8-27b`)
+because the supplied OpenAI key returned `insufficient_quota`. For OpenAI, use
 `https://api.openai.com/v1/chat/completions` + an `sk-...` key + e.g.
-`gpt-4o-mini`.
+`gpt-4o-mini` - no other change.
+
+## Watermark persistence on n8n Cloud
+
+n8n Cloud persists workflow static data (the ETag + `lastStarredAt` watermark)
+only across **scheduled/active** executions, not **manual editor** ones. So
+*Filter New Stargazers* uses an epoch floor and processes the current stargazers
+when no watermark is stored - this keeps manual testing deterministic. An
+activated schedule persists the watermark and emits only genuinely new stars.
+See `DEMO.md` to demonstrate the persisted path.
 
 ## Import
 
