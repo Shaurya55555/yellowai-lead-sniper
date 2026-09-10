@@ -42,12 +42,21 @@ Run the workflow once more with no new star and show the
 `[lead-sniper] 304 Not Modified: no new stars, ending cycle` line. That proves
 the conditional-request path works, which is the core of the Logic Log.
 
-## Extra paths worth showing (pick what fits the time)
+## Show both filter outcomes
 
-- **Non-qualifying lead:** star from an account with < 100 followers and < 50
-  public repos. Show it reaching *Filter: High-Value Lead* and being dropped
-  (no Slack message).
-- **304 / no change:** covered by the quiet-path take above.
+The brief requires that users who fail the condition stop the flow, so show
+both:
+
+**Test A - qualifying lead.** Star from an account with `> 100` followers **or**
+`> 50` public repos. Expected: reaches *Filter: High-Value Lead*, passes, pitch
+generated, Slack card posted.
+
+**Test B - non-qualifying lead.** Star from a second account with
+`<= 100` followers **and** `<= 50` public repos. Expected: reaches
+*Filter: High-Value Lead*, is dropped, no Slack message. Point at the filter
+node's empty output.
+
+**304 / no change:** covered by the quiet-path take above.
 
 ## Before you export and submit the workflow JSON
 

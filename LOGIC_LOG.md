@@ -96,6 +96,16 @@ This is a deliberate "detect, log, defer to the next tick" model rather than an
 in-execution retry loop. A production version behind a webhook (see below) would
 instead honour `Retry-After` inline.
 
+### Failure policy for the non-GitHub steps
+
+- **Pitch generation fails** (`Generate Sales Pitch`, after 3 retries): the node
+  has `onError: continueRegularOutput`, so the qualifying lead still flows to
+  *Build Slack Message*, which substitutes `"(pitch unavailable)"` and posts the
+  lead anyway. AI being down never silently drops a lead.
+- **Slack post fails** (`Post to Slack`, after 3 retries): the execution is
+  marked failed. This is intentional - a notification that did not send should
+  be loud, and the full lead data is still visible in the preceding nodes.
+
 ## Budget, worst case per 15-minute run
 
 | Step | GitHub requests |

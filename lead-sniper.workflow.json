@@ -251,6 +251,7 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
       "credentials": {
         "openAiApi": { "id": "REPLACE_OPENAI", "name": "OpenAi account" }
       }
