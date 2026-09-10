@@ -9,17 +9,22 @@ Slack.
 
 ```
 Schedule (15 min)
-  -> Set Config (repo, thresholds, Slack webhook)
-  -> Get Stargazers page 1 (read Link header)
+  -> Set Config           (repo, thresholds, Slack webhook)
+  -> Load Sync State      (read ETag + watermark from workflow static data)
+  -> Discover Last Page   (stargazers page 1, read Link: rel="last" + X-RateLimit-Remaining)
   -> Resolve Last Page
-  -> Get Latest Stargazers (newest page only)
-  -> Filter New Stargazers (watermark in workflow static data)
-  -> Enrich: Get User Profile  (/users/{login}, throttled 1 / 1.5s)
-  -> Filter: High-Value Lead   (followers > 100 OR public_repos > 50)
-  -> Generate Sales Pitch      (OpenAI chat completions, 1 sentence)
-  -> Build Slack Message       (block-kit payload)
-  -> Post to Slack             (incoming webhook)
+  -> Guard: Rate Budget OK   (skip this cycle if X-RateLimit-Remaining < 100)
+  -> Poll Stargazers (conditional)   (last page, If-None-Match: <etag> -> 304 = free, stop)
+  -> Filter New Stargazers   (watermark on starred_at; save new ETag)
+  -> Enrich: Get User Profile   (/users/{login}, batched 1 / 1.5s, retry 3x)
+  -> Filter: High-Value Lead    (followers > 100 OR public_repos > 50)
+  -> Generate Sales Pitch       (OpenAI chat completions, 1 sentence)
+  -> Build Slack Message        (Block Kit payload)
+  -> Post to Slack              (incoming webhook)
 ```
+
+See **LOGIC_LOG.md** for the rate-limit strategy (authenticate -> conditional
+requests -> structural minimisation -> backoff).
 
 ## Import
 
@@ -30,8 +35,8 @@ Schedule (15 min)
    - `minFollowers` / `minPublicRepos` - defaults 100 / 50
 3. Create credentials (Credentials -> New -> **Header Auth**):
    - **GitHub PAT (Header Auth)** - name `Authorization`, value `Bearer ghp_xxx`
-     (a fine-grained token with public read scope is enough).
-     Assign to: *Get Stargazers (headers)*, *Get Latest Stargazers*,
+     (a classic PAT with the `public_repo` scope is enough).
+     Assign to: *Discover Last Page*, *Poll Stargazers (conditional)*,
      *Enrich: Get User Profile*.
    - **OpenAI (Header Auth)** - name `Authorization`, value `Bearer sk-xxx`.
      Assign to: *Generate Sales Pitch*.

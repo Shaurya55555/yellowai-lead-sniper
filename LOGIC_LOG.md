@@ -1,72 +1,70 @@
-# Logic Log - How GitHub API rate limits are handled
+# Logic Log - GitHub API rate-limit handling
 
-GitHub's REST API limits:
+The brief asks whether I used "a delay or a specific header". The answer is
+both, but a delay is the last line of defence, not the strategy. The strategy
+is: **make almost every poll cost zero requests, then defend what's left.**
+Four layers.
 
-- **Unauthenticated:** 60 requests / hour / IP.
-- **Authenticated (PAT):** 5,000 requests / hour.
-- Plus **secondary rate limits** that trigger on bursts of concurrent or
-  rapid-fire requests, regardless of the primary budget.
+## Layer 1 - Authenticate: raise the primary ceiling
 
-This workflow does four things to stay comfortably inside those limits.
+Every GitHub call carries `Authorization: Bearer <PAT>` through an n8n Header
+Auth credential. This moves the primary limit from **60 requests/hour**
+(anonymous, per IP) to **5,000 requests/hour**. A classic PAT with the
+`public_repo` scope is enough. Nodes: *Discover Last Page*,
+*Poll Stargazers (conditional)*, *Enrich: Get User Profile*.
 
-## 1. Authenticate every call with a Personal Access Token
+## Layer 2 - Conditional requests: the poll that does not count
 
-All three GitHub HTTP Request nodes use a **Header Auth** credential
-(`Authorization: Bearer ghp_...`). This alone lifts the ceiling from 60/hr to
-5,000/hr. A fine-grained token with only `public_repo` read scope is enough.
+*Poll Stargazers (conditional)* sends `If-None-Match: <etag>`, where `<etag>` is
+the `ETag` response header saved from the previous run in workflow static data
+(`Load Sync State` reads it, `Filter New Stargazers` writes the new one).
 
-## 2. Jump straight to the newest stars instead of paginating
+When nothing has been starred since the last poll, GitHub returns
+**HTTP 304 Not Modified**, and per GitHub's REST documentation a **304 does not
+count against the rate limit at all**. The node uses `neverError` so a 304 does
+not fail it, and `Filter New Stargazers` stops the run immediately on a 304.
 
-The `/repos/{owner}/{repo}/stargazers` endpoint returns stargazers
-**oldest-first**, so the new stars are always on the last page. Walking every
-page of a repo like `n8n-io/n8n` would be hundreds of requests per run.
+Steady state for a normal repo: most 15-minute polls are free.
 
-Instead:
+## Layer 3 - Structural minimisation: O(1), not O(pages)
 
-- **Get Stargazers (headers)** requests page 1 with `fullResponse` enabled so we
-  can read the response headers.
-- **Resolve Last Page** parses the `Link` header
-  (`<...&page=42>; rel="last"`) to get the last page number.
-- **Get Latest Stargazers** fetches only that one page.
+- **Jump to the newest page.** `GET /repos/{o}/{r}/stargazers` returns
+  stargazers **oldest-first**, so new stars are always on the last page.
+  *Discover Last Page* reads the `Link: <...&page=N>; rel="last"` header once and
+  the next call goes straight to page N. Discovery is 1 request whether the repo
+  has 200 stargazers or 200,000.
+- **The specific header for timestamps.**
+  `Accept: application/vnd.github.star+json` makes the API include `starred_at`
+  on each stargazer, which is what the "is this new?" check runs on.
+- **Watermark.** `Filter New Stargazers` keeps a `lastStarredAt` timestamp in
+  static data and forwards only stargazers newer than it, so the expensive
+  `GET /users/{login}` enrichment fires for genuinely new users only (typically
+  0-2 per poll), never the whole page.
 
-Cost per run: **2 requests** for discovery, no matter how popular the repo is.
+## Layer 4 - Defend the remainder: secondary limit and backoff
 
-## 3. A watermark so we only enrich genuinely new stars
+- **Secondary (abuse) limit.** The PAT does not lift GitHub's secondary
+  rate limit, which triggers on bursts. *Enrich: Get User Profile* uses the HTTP
+  node's **batching** at 1 request per **1,500 ms** to stay under it.
+- **Backoff.** Every GitHub node has **retry-on-fail**: 3 tries, 5 s apart. This
+  absorbs transient `403`/`5xx` and gives a `Retry-After` window room to clear.
+- **Budget guard.** *Resolve Last Page* reads `X-RateLimit-Remaining` from the
+  discovery response; *Guard: Rate Budget OK* drops the run for this cycle if it
+  is below 100, so a near-exhausted budget is never pushed over. The next
+  scheduled run picks up normally.
 
-**Filter New Stargazers** (Code node) stores the most recent `starred_at`
-timestamp in `$getWorkflowStaticData('global').lastStarredAt`. On the next run it
-keeps only stargazers newer than that timestamp. Steady state is usually 0-2 new
-users per 15-minute run, so the expensive per-user enrichment call almost never
-fires more than a couple of times.
+## Budget, worst case per 15-minute run
 
-(The `Accept: application/vnd.github.star+json` header is what makes the API
-include the `starred_at` field needed for this.)
-
-## 4. Throttle the per-user enrichment calls
-
-**Enrich: Get User Profile** uses the HTTP Request node's built-in **Batching**
-option: `batchSize = 1`, `batchInterval = 1500 ms`. Even if a burst of new
-stargazers arrives, profiles are fetched one every 1.5 s rather than all at once,
-which keeps us clear of the secondary abuse-detection limits.
-
-## Budget math (worst case, per 15-min run)
-
-| Step | Requests |
+| Step | GitHub requests |
 | --- | --- |
-| Discover last page | 1 |
-| Fetch last page of stargazers | 1 |
-| Enrich new users (typical) | 0-2 |
-| OpenAI pitch (not GitHub) | per lead |
-| Slack post (not GitHub) | per lead |
-| **GitHub total** | **~2-4 / run -> ~16 / hour** |
+| Stargazer poll | 1 discovery + 1 poll (the poll is often a free 304) |
+| Enrich new users | 0-2 |
+| **Total** | **~2-4 / run  ~=  16 / hour  ~=  0.3% of the 5,000/hour budget** |
 
-That is 0.3% of the authenticated hourly budget.
+## If I took it further
 
-## What I'd add for production
-
-- Read `X-RateLimit-Remaining` / `X-RateLimit-Reset` from the response headers
-  and pause the workflow if `Remaining` drops below a threshold.
-- Handle HTTP 403 + `Retry-After` with an exponential backoff (n8n's HTTP node
-  "Retry On Fail" covers the simple case).
-- Move the watermark from workflow static data to a real store (Postgres / Redis)
-  so it survives workflow re-imports.
+- Move ETag + watermark to a real datastore so they survive a workflow
+  re-import (static data does not).
+- Replace polling entirely with a repo webhook on the **`watch`** event, which
+  fires the instant someone stars the repo: real-time, zero polling, zero
+  rate-limit exposure on the trigger.
