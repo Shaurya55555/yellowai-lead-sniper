@@ -29,7 +29,13 @@ Schedule (15 min)
 ```
 
 See **LOGIC_LOG.md** for the rate-limit strategy (authenticate -> conditional
-requests -> structural minimisation -> typed retry rules).
+requests -> structural minimisation -> typed retry rules) and **DEMO.md** for the
+recording plan.
+
+**Why polling, not a webhook:** a repo webhook on the `watch` event would be
+simpler and real-time, but the assignment specifically asks how API rate limits
+were handled, and polling is where that question has an answer. The webhook is
+noted as the production trigger in `LOGIC_LOG.md`.
 
 ## Import
 
@@ -39,6 +45,7 @@ requests -> structural minimisation -> typed retry rules).
      `Shaurya55555` / `yellowai-lead-sniper-demo`)
    - `minFollowers` / `minPublicRepos` - defaults 100 / 50
    - `minRateRemaining` - default 100
+   - `openAiModel` - default `gpt-4o-mini`; change here, not in the node
 3. Set an environment variable on the n8n instance:
    - `SLACK_WEBHOOK_URL` - your Slack Incoming Webhook URL. Read by
      *Post to Slack* as `{{ $env.SLACK_WEBHOOK_URL }}`; it is never stored in the
@@ -86,7 +93,9 @@ return { json: { content: header + "\n" + pitch + "\n<https://github.com/" + use
 ```
 lead-sniper.workflow.json   the importable n8n workflow
 LOGIC_LOG.md                required deliverable: how GitHub rate limits are handled
+DEMO.md                     recording plan and shot list
 docs/message-example.md     sample of the Slack card this produces
+docs/BUILD_VS_GPT.md        design-decision comparison notes
 ```
 
 ## Deliverables checklist
@@ -94,4 +103,4 @@ docs/message-example.md     sample of the Slack card this produces
 - [x] Workflow JSON - `lead-sniper.workflow.json`
 - [x] Logic Log - `LOGIC_LOG.md`
 - [ ] Screenshot of a successful Slack message - run it and capture
-- [ ] Demo recording - screen-capture one execution end to end
+- [ ] Demo recording - follow `DEMO.md`

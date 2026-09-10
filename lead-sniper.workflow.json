@@ -15,9 +15,9 @@
     },
     {
       "parameters": {
-        "content": "### Rate-limit strategy (see LOGIC_LOG.md)\n\n1. **Authenticate** - PAT via Header Auth -> 5,000 req/h instead of 60.\n2. **Conditional request** - `If-None-Match: <etag>` on the stargazer poll. Nothing new -> **HTTP 304**, which does not consume the primary REST rate limit. `neverError` keeps 304 from failing the node.\n3. **Structural minimisation** - `Link: rel=\"last\"` header -> request the newest page instead of hard-coding page 1. `Accept: application/vnd.github.star+json` -> get `starred_at`. `lastStarredAt` watermark -> enrich only genuinely new users. Assumes < 1 page (100) of new stars per poll.\n4. **Defend the rest** - `/users/{login}` serialised at 1 req / 1500 ms as a conservative burst safeguard, retry-on-fail 3x/5s for transient errors, and skip the cycle if `X-RateLimit-Remaining` < `minRateRemaining`.",
-        "height": 380,
-        "width": 470
+        "content": "### Rate-limit strategy (see LOGIC_LOG.md)\n\n1. **Authenticate** - PAT via Header Auth -> 5,000 req/h instead of 60.\n2. **Conditional request** - `If-None-Match: <etag>` on the stargazer poll. Nothing new -> **HTTP 304**, which does not consume the primary REST rate limit. `neverError` keeps 304 from failing the node.\n3. **Structural minimisation** - `Link: rel=\"last\"` header -> request the newest page instead of hard-coding page 1. `Accept: application/vnd.github.star+json` -> get `starred_at`. `lastStarredAt` watermark -> enrich only genuinely new users. Assumes < 1 page (100) of new stars per poll.\n4. **Defend the rest** - `/users/{login}` serialised at 1 req / 1500 ms as a conservative burst safeguard; retry-on-fail 3x/5s for transient errors; skip the cycle if `X-RateLimit-Remaining` < `minRateRemaining`; and *Filter New Stargazers* detects a `403`/`429` on the poll, logs `Retry-After` / `X-RateLimit-Reset`, and skips the cycle (next schedule retries).\n\nCode nodes `console.log` a `[lead-sniper]` trace line so the execution reads top to bottom during a demo.",
+        "height": 420,
+        "width": 480
       },
       "id": "11111111-0000-0000-0000-000000000013",
       "name": "Rate-limit notes",
@@ -47,7 +47,8 @@
             { "id": "cfg-2", "name": "repoName", "value": "yellowai-lead-sniper-demo", "type": "string" },
             { "id": "cfg-3", "name": "minFollowers", "value": 100, "type": "number" },
             { "id": "cfg-4", "name": "minPublicRepos", "value": 50, "type": "number" },
-            { "id": "cfg-5", "name": "minRateRemaining", "value": 100, "type": "number" }
+            { "id": "cfg-5", "name": "minRateRemaining", "value": 100, "type": "number" },
+            { "id": "cfg-6", "name": "openAiModel", "value": "gpt-4o-mini", "type": "string" }
           ]
         },
         "options": {}
@@ -60,7 +61,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Pull the sync state saved by the previous run (ETag + watermark) out of\n// workflow static data, and carry the config forward on the same item.\nconst store = $getWorkflowStaticData('global');\nconst cfg = $('Set Config').first().json;\nreturn [{\n  json: {\n    repoOwner: cfg.repoOwner,\n    repoName: cfg.repoName,\n    minFollowers: cfg.minFollowers,\n    minPublicRepos: cfg.minPublicRepos,\n    minRateRemaining: cfg.minRateRemaining,\n    stargazersEtag: store.stargazersEtag || '',\n    lastStarredAt: store.lastStarredAt || ''\n  }\n}];"
+        "jsCode": "// Pull the sync state saved by the previous run (ETag + watermark) out of\n// workflow static data, and carry the config forward on the same item.\nconst store = $getWorkflowStaticData('global');\nconst cfg = $('Set Config').first().json;\nconst state = {\n  repoOwner: cfg.repoOwner,\n  repoName: cfg.repoName,\n  minFollowers: cfg.minFollowers,\n  minPublicRepos: cfg.minPublicRepos,\n  minRateRemaining: cfg.minRateRemaining,\n  openAiModel: cfg.openAiModel || 'gpt-4o-mini',\n  stargazersEtag: store.stargazersEtag || '',\n  lastStarredAt: store.lastStarredAt || ''\n};\nconsole.log('[lead-sniper] poll start repo=' + state.repoOwner + '/' + state.repoName +\n  ' etag=' + (state.stargazersEtag ? 'set' : 'none') +\n  ' watermark=' + (state.lastStarredAt || 'none (baseline run)'));\nreturn [{ json: state }];"
       },
       "id": "11111111-0000-0000-0000-000000000014",
       "name": "Load Sync State",
@@ -98,7 +99,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// GitHub returns stargazers oldest-first, so new stars are on the LAST page.\n// Read the page count from the RFC-5988 Link header instead of paginating.\n// Also surface the primary rate-limit budget for the guard below.\nconst res = $input.first().json;\nconst headers = res.headers || {};\nconst link = headers.link || headers.Link || '';\nconst m = link.match(/[?&]page=(\\d+)>;\\s*rel=\"last\"/);\nconst remaining = parseInt(headers['x-ratelimit-remaining'] ?? '9999', 10);\nreturn [{ json: { lastPage: m ? parseInt(m[1], 10) : 1, rateRemaining: remaining } }];"
+        "jsCode": "// GitHub returns stargazers oldest-first, so new stars are on the LAST page.\n// Read the page count from the RFC-5988 Link header instead of paginating.\n// Also surface the primary rate-limit budget for the guard below.\nconst res = $input.first().json;\nconst headers = res.headers || {};\nconst link = headers.link || headers.Link || '';\nconst m = link.match(/[?&]page=(\\d+)>;\\s*rel=\"last\"/);\nconst remaining = parseInt(headers['x-ratelimit-remaining'] ?? '9999', 10);\nconst lastPage = m ? parseInt(m[1], 10) : 1;\nconsole.log('[lead-sniper] discovery: lastPage=' + lastPage + ' rateRemaining=' + remaining);\nreturn [{ json: { lastPage, rateRemaining: remaining } }];"
       },
       "id": "11111111-0000-0000-0000-000000000005",
       "name": "Resolve Last Page",
@@ -159,7 +160,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Handle the conditional response.\n// 304 Not Modified -> nothing starred since last poll, and this response does\n// not consume the primary REST rate limit. Return nothing so the run ends here.\nconst store = $getWorkflowStaticData('global');\nconst res = $input.first().json;\nconst status = res.statusCode || 200;\n\nif (status === 304) {\n  return [];\n}\n\n// Save the new ETag for next run's conditional request.\nconst headers = res.headers || {};\nconst newEtag = headers.etag || headers.ETag;\nif (newEtag) store.stargazersEtag = newEtag;\n\nconst body = Array.isArray(res.body) ? res.body : [];\nconst prev = store.lastStarredAt ? new Date(store.lastStarredAt) : null;\n\n// Advance the watermark to the newest star we can see this poll.\nlet newest = prev || new Date(0);\nfor (const it of body) {\n  const t = new Date(it.starred_at);\n  if (t > newest) newest = t;\n}\nstore.lastStarredAt = newest.toISOString();\n\n// First run has no watermark: record the baseline and emit nothing. Genuinely\n// new stars are picked up on the next poll. No back-seeding of existing stars.\nif (!prev) {\n  return [];\n}\n\nconst fresh = body.filter((it) => new Date(it.starred_at) > prev);\nreturn fresh.map((it) => ({\n  json: { login: it.user.login, starred_at: it.starred_at }\n}));"
+        "jsCode": "// Handle the conditional response from the stargazer poll.\nconst store = $getWorkflowStaticData('global');\nconst res = $input.first().json;\nconst status = res.statusCode || 200;\nconst headers = res.headers || {};\n\n// 304 Not Modified: nothing starred since last poll. This response does not\n// consume the primary REST rate limit. End the cycle.\nif (status === 304) {\n  console.log('[lead-sniper] 304 Not Modified: no new stars, ending cycle');\n  return [];\n}\n\n// Rate limited (secondary/abuse or primary exhausted mid-cycle): log the reset\n// hint and end the cycle. The next scheduled run retries; we deliberately do\n// not block this execution on a long Wait.\nif (status === 403 || status === 429) {\n  console.log('[lead-sniper] ' + status + ' rate limited. retry-after=' +\n    (headers['retry-after'] || 'n/a') + ' x-ratelimit-reset=' +\n    (headers['x-ratelimit-reset'] || 'n/a') + '. Skipping this cycle.');\n  return [];\n}\n\nif (status >= 400) {\n  console.log('[lead-sniper] unexpected status ' + status + ' from stargazer poll, ending cycle');\n  return [];\n}\n\n// Save the new ETag for next run's conditional request.\nconst newEtag = headers.etag || headers.ETag;\nif (newEtag) store.stargazersEtag = newEtag;\n\nconst body = Array.isArray(res.body) ? res.body : [];\nconst prev = store.lastStarredAt ? new Date(store.lastStarredAt) : null;\n\n// Advance the watermark to the newest star we can see this poll.\nlet newest = prev || new Date(0);\nfor (const it of body) {\n  const t = new Date(it.starred_at);\n  if (t > newest) newest = t;\n}\nstore.lastStarredAt = newest.toISOString();\n\n// First run has no watermark: record the baseline and emit nothing. Genuinely\n// new stars are picked up on the next poll. No back-seeding of existing stars.\nif (!prev) {\n  console.log('[lead-sniper] baseline run: recorded watermark ' + store.lastStarredAt + ', emitting 0');\n  return [];\n}\n\nconst fresh = body.filter((it) => new Date(it.starred_at) > prev);\nconsole.log('[lead-sniper] ' + fresh.length + ' new stargazer(s) since ' + prev.toISOString());\nreturn fresh.map((it) => ({\n  json: { login: it.user.login, starred_at: it.starred_at }\n}));"
       },
       "id": "11111111-0000-0000-0000-000000000007",
       "name": "Filter New Stargazers",
@@ -229,9 +230,8 @@
         "operation": "message",
         "modelId": {
           "__rl": true,
-          "mode": "list",
-          "value": "gpt-4o-mini",
-          "cachedResultName": "gpt-4o-mini"
+          "mode": "id",
+          "value": "={{ $('Load Sync State').first().json.openAiModel }}"
         },
         "messages": {
           "values": [
@@ -257,7 +257,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Merge the enriched GitHub profile with the AI pitch into a Slack payload.\n// name / company / bio are user-controlled, so escape before putting them in mrkdwn.\nfunction esc(v) {\n  return String(v == null ? '' : v)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/([*_~`|])/g, '\\u200b$1');\n}\n\nconst user = $('Enrich: Get User Profile').item.json;\nconst ai = $json || {};\nconst pitchRaw = (ai.message && ai.message.content) || ai.text || ai.content ||\n  (ai.choices && ai.choices[0] && ai.choices[0].message && ai.choices[0].message.content) || '';\nconst pitch = esc(String(pitchRaw).trim()) || '(pitch unavailable)';\nconst cfg = $('Load Sync State').first().json;\nconst header = ':dart: New high-value lead starred ' + cfg.repoOwner + '/' + cfg.repoName;\n\nreturn {\n  json: {\n    text: header,\n    blocks: [\n      { type: 'section', text: { type: 'mrkdwn', text: '*' + header + '*' } },\n      { type: 'section', fields: [\n        { type: 'mrkdwn', text: '*Name:*\\n' + esc(user.name || user.login) },\n        { type: 'mrkdwn', text: '*Company:*\\n' + esc(user.company || '-') },\n        { type: 'mrkdwn', text: '*Followers:*\\n' + user.followers },\n        { type: 'mrkdwn', text: '*Public repos:*\\n' + user.public_repos }\n      ] },\n      { type: 'section', text: { type: 'mrkdwn', text: '*Bio:*\\n' + esc(user.bio || '-') } },\n      { type: 'section', text: { type: 'mrkdwn', text: '*AI sales pitch:*\\n' + pitch } },\n      { type: 'context', elements: [ { type: 'mrkdwn', text: '<https://github.com/' + encodeURIComponent(user.login) + '|github.com/' + esc(user.login) + '>' } ] }\n    ]\n  }\n};"
+        "jsCode": "// Merge the enriched GitHub profile with the AI pitch into a Slack payload.\n// name / company / bio are user-controlled, so escape before putting them in mrkdwn.\nfunction esc(v) {\n  return String(v == null ? '' : v)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/([*_~`|])/g, '\\u200b$1');\n}\n\nconst user = $('Enrich: Get User Profile').item.json;\nconst ai = $json || {};\nconst pitchRaw = (ai.message && ai.message.content) || ai.text || ai.content ||\n  (ai.choices && ai.choices[0] && ai.choices[0].message && ai.choices[0].message.content) || '';\nconst pitch = esc(String(pitchRaw).trim()) || '(pitch unavailable)';\nconst cfg = $('Load Sync State').first().json;\nconst header = ':dart: New high-value lead starred ' + cfg.repoOwner + '/' + cfg.repoName;\nconsole.log('[lead-sniper] qualified lead ' + (user.login) + ' followers=' + user.followers +\n  ' public_repos=' + user.public_repos + ' -> posting to Slack');\n\nreturn {\n  json: {\n    text: header,\n    blocks: [\n      { type: 'section', text: { type: 'mrkdwn', text: '*' + header + '*' } },\n      { type: 'section', fields: [\n        { type: 'mrkdwn', text: '*Name:*\\n' + esc(user.name || user.login) },\n        { type: 'mrkdwn', text: '*Company:*\\n' + esc(user.company || '-') },\n        { type: 'mrkdwn', text: '*Followers:*\\n' + user.followers },\n        { type: 'mrkdwn', text: '*Public repos:*\\n' + user.public_repos }\n      ] },\n      { type: 'section', text: { type: 'mrkdwn', text: '*Bio:*\\n' + esc(user.bio || '-') } },\n      { type: 'section', text: { type: 'mrkdwn', text: '*AI sales pitch:*\\n' + pitch } },\n      { type: 'context', elements: [ { type: 'mrkdwn', text: '<https://github.com/' + encodeURIComponent(user.login) + '|github.com/' + esc(user.login) + '>' } ] }\n    ]\n  }\n};"
       },
       "id": "11111111-0000-0000-0000-000000000011",
       "name": "Build Slack Message",
