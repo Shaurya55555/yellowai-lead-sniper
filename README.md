@@ -2,64 +2,75 @@
 
 Yellow.ai AI Intern assignment 1.
 
-An n8n workflow that watches a popular GitHub repo's stargazers. Whenever an
+An n8n workflow that watches a GitHub repo's stargazers. Whenever an
 **influential** user (`followers > 100` OR `public_repos > 50`) stars it, an LLM
 writes a one-sentence sales pitch and the workflow posts a formatted card to
 Slack.
 
+> **GitHub API note:** since July 2026 the stargazer-listing endpoint only
+> returns data for repos where your token is an **admin or collaborator**
+> ([changelog](https://github.blog/changelog/2026-06-30-upcoming-access-restrictions-to-public-api-endpoints-and-ui-views/)).
+> Point the workflow at a repo you control. See `LOGIC_LOG.md`.
+
 ```
 Schedule (15 min)
-  -> Set Config           (repo, thresholds, Slack webhook)
+  -> Set Config           (repo, thresholds)
   -> Load Sync State      (read ETag + watermark from workflow static data)
   -> Discover Last Page   (stargazers page 1, read Link: rel="last" + X-RateLimit-Remaining)
   -> Resolve Last Page
-  -> Guard: Rate Budget OK   (skip this cycle if X-RateLimit-Remaining < 100)
-  -> Poll Stargazers (conditional)   (last page, If-None-Match: <etag> -> 304 = free, stop)
-  -> Filter New Stargazers   (watermark on starred_at; save new ETag)
-  -> Enrich: Get User Profile   (/users/{login}, batched 1 / 1.5s, retry 3x)
+  -> Guard: Rate Budget OK   (skip this cycle if X-RateLimit-Remaining < minRateRemaining)
+  -> Poll Stargazers (conditional)   (newest page, If-None-Match: <etag> -> 304 = free, stop)
+  -> Filter New Stargazers   (baseline on first run; then watermark on starred_at; save new ETag)
+  -> Enrich: Get User Profile   (/users/{login}, serialised 1 / 1.5s, retry 3x)
   -> Filter: High-Value Lead    (followers > 100 OR public_repos > 50)
-  -> Generate Sales Pitch       (OpenAI chat completions, 1 sentence)
-  -> Build Slack Message        (Block Kit payload)
-  -> Post to Slack              (incoming webhook)
+  -> Generate Sales Pitch       (native OpenAI node, 1 sentence)
+  -> Build Slack Message        (Block Kit payload, bio escaped for mrkdwn)
+  -> Post to Slack              (webhook URL from $env.SLACK_WEBHOOK_URL)
 ```
 
 See **LOGIC_LOG.md** for the rate-limit strategy (authenticate -> conditional
-requests -> structural minimisation -> backoff).
+requests -> structural minimisation -> typed retry rules).
 
 ## Import
 
 1. In n8n: **Workflows -> Import from File -> `lead-sniper.workflow.json`**.
 2. Open **Set Config** and set:
-   - `repoOwner` / `repoName` - e.g. `n8n-io` / `n8n`, or `tiangolo` / `fastapi`
-   - `slackWebhookUrl` - your Slack Incoming Webhook URL
+   - `repoOwner` / `repoName` - **a repo you admin** (e.g.
+     `Shaurya55555` / `yellowai-lead-sniper-demo`)
    - `minFollowers` / `minPublicRepos` - defaults 100 / 50
-3. Create credentials (Credentials -> New -> **Header Auth**):
-   - **GitHub PAT (Header Auth)** - name `Authorization`, value `Bearer ghp_xxx`
-     (a classic PAT with the `public_repo` scope is enough).
+   - `minRateRemaining` - default 100
+3. Set an environment variable on the n8n instance:
+   - `SLACK_WEBHOOK_URL` - your Slack Incoming Webhook URL. Read by
+     *Post to Slack* as `{{ $env.SLACK_WEBHOOK_URL }}`; it is never stored in the
+     workflow JSON.
+4. Create credentials:
+   - **GitHub PAT (Header Auth)** (Credentials -> New -> **Header Auth**) - name
+     `Authorization`, value `Bearer ghp_xxx` (classic PAT, `repo` scope).
      Assign to: *Discover Last Page*, *Poll Stargazers (conditional)*,
      *Enrich: Get User Profile*.
-   - **OpenAI (Header Auth)** - name `Authorization`, value `Bearer sk-xxx`.
+   - **OpenAi account** (Credentials -> New -> **OpenAI**) - your OpenAI API key.
      Assign to: *Generate Sales Pitch*.
-4. Slack webhook needs no credential - the URL itself is the secret and lives in
-   **Set Config**.
 
 ## Run / test
 
-- Click **Execute Workflow** on the canvas for a manual run.
-- On the **first** run the watermark is empty, so it seeds with the **last 5
-  stargazers** of the configured repo - that guarantees the pipeline produces
-  output for the demo without waiting for a brand-new star.
-- After that, each run only processes stargazers newer than the last run.
-- Activate the workflow to poll every 15 minutes.
+The first run is a **baseline** run:
+
+1. Click **Execute Workflow**. With no stored watermark, *Filter New Stargazers*
+   records the current newest star and emits nothing. This is expected: zero
+   Slack messages on run 1.
+2. Star the repo from a second GitHub account (ideally one with > 100 followers
+   or > 50 public repos so it passes the filter).
+3. **Execute Workflow** again. The new star is now newer than the watermark, so
+   it flows through enrichment -> filter -> pitch -> Slack.
+4. Activate the workflow to poll every 15 minutes.
 
 ### Tips for the demo
 
-- To force a specific well-known lead through the filter, temporarily set
-  `repoOwner`/`repoName` to a small repo you control and star it from an account
-  with >100 followers, or lower `minFollowers` to `0` for one run.
-- The OpenAI node can be swapped for the native **OpenAI** / **Basic LLM Chain**
-  node if you prefer; the HTTP version is used here so the export imports cleanly
-  on any n8n instance.
+- Lower `minFollowers` to `0` for one run if your second account does not clear
+  the threshold.
+- `Generate Sales Pitch` uses the native n8n **OpenAI** node (resource *Text*,
+  operation *Message a model*). Swap the model in that node if `gpt-4o-mini` is
+  not enabled on your key.
 
 ## Swap Slack for Discord
 

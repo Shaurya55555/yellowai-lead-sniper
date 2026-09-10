@@ -3,9 +3,9 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## GitHub High-Value Lead Sniper\n\nWatches a repo's stargazers. When someone influential stars it, an LLM writes a 1-line sales pitch and it's posted to Slack.\n\n**Before running:**\n1. Open **Set Config**: set `repoOwner`, `repoName`, `slackWebhookUrl`.\n2. Credential **GitHub PAT (Header Auth)** -> Header Auth, name `Authorization`, value `Bearer ghp_xxx` (classic PAT, `public_repo` scope is enough). Assign to the 3 GitHub HTTP nodes.\n3. Credential **OpenAI (Header Auth)** -> Header Auth, name `Authorization`, value `Bearer sk-xxx`. Assign to **Generate Sales Pitch**.\n4. Run once with **Execute Workflow**, or activate for a 15-min poll.",
-        "height": 320,
-        "width": 420
+        "content": "## GitHub High-Value Lead Sniper\n\nWatches a repo's stargazers. When someone influential stars it, an LLM writes a 1-line sales pitch and it's posted to Slack.\n\n**GitHub API note:** since July 2026 the stargazer-listing endpoint only works for repos where your token is an **admin or collaborator**. Point `repoOwner`/`repoName` at a repo you control.\n\n**Before running:**\n1. **Set Config**: set `repoOwner`, `repoName` (a repo you admin).\n2. Set the env var `SLACK_WEBHOOK_URL` on the n8n instance (used by *Post to Slack*).\n3. Credential **GitHub PAT (Header Auth)** -> Header Auth, name `Authorization`, value `Bearer ghp_xxx` (classic PAT, `repo` scope). Assign to the 3 GitHub HTTP nodes.\n4. Credential **OpenAi account** -> your OpenAI API key. Assign to **Generate Sales Pitch**.\n5. First run establishes a baseline and posts nothing. Star the repo, run again.",
+        "height": 360,
+        "width": 440
       },
       "id": "11111111-0000-0000-0000-000000000001",
       "name": "Setup notes",
@@ -15,9 +15,9 @@
     },
     {
       "parameters": {
-        "content": "### Rate-limit strategy (see LOGIC_LOG.md)\n\n1. **Authenticate** - PAT via Header Auth -> 5,000 req/h instead of 60.\n2. **Conditional request** - `If-None-Match: <etag>` on the stargazer poll. Nothing new -> **HTTP 304**, which does NOT count against the rate limit. `neverError` keeps 304 from failing the node.\n3. **Structural minimisation** - `Link: rel=\"last\"` header -> jump to the newest page (O(1), not O(pages)). `Accept: application/vnd.github.star+json` -> get `starred_at`. `lastStarredAt` watermark -> enrich only genuinely new users.\n4. **Defend the rest** - `/users/{login}` batched at 1 req / 1500 ms (secondary limit), retry-on-fail 3x/5s (honours `Retry-After`), and skip the cycle if `X-RateLimit-Remaining` < 100.",
-        "height": 360,
-        "width": 460
+        "content": "### Rate-limit strategy (see LOGIC_LOG.md)\n\n1. **Authenticate** - PAT via Header Auth -> 5,000 req/h instead of 60.\n2. **Conditional request** - `If-None-Match: <etag>` on the stargazer poll. Nothing new -> **HTTP 304**, which does not consume the primary REST rate limit. `neverError` keeps 304 from failing the node.\n3. **Structural minimisation** - `Link: rel=\"last\"` header -> request the newest page instead of hard-coding page 1. `Accept: application/vnd.github.star+json` -> get `starred_at`. `lastStarredAt` watermark -> enrich only genuinely new users. Assumes < 1 page (100) of new stars per poll.\n4. **Defend the rest** - `/users/{login}` serialised at 1 req / 1500 ms as a conservative burst safeguard, retry-on-fail 3x/5s for transient errors, and skip the cycle if `X-RateLimit-Remaining` < `minRateRemaining`.",
+        "height": 380,
+        "width": 470
       },
       "id": "11111111-0000-0000-0000-000000000013",
       "name": "Rate-limit notes",
@@ -43,12 +43,11 @@
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "cfg-1", "name": "repoOwner", "value": "n8n-io", "type": "string" },
-            { "id": "cfg-2", "name": "repoName", "value": "n8n", "type": "string" },
+            { "id": "cfg-1", "name": "repoOwner", "value": "Shaurya55555", "type": "string" },
+            { "id": "cfg-2", "name": "repoName", "value": "yellowai-lead-sniper-demo", "type": "string" },
             { "id": "cfg-3", "name": "minFollowers", "value": 100, "type": "number" },
             { "id": "cfg-4", "name": "minPublicRepos", "value": 50, "type": "number" },
-            { "id": "cfg-5", "name": "minRateRemaining", "value": 100, "type": "number" },
-            { "id": "cfg-6", "name": "slackWebhookUrl", "value": "https://hooks.slack.com/services/REPLACE/WITH/YOUR_WEBHOOK", "type": "string" }
+            { "id": "cfg-5", "name": "minRateRemaining", "value": 100, "type": "number" }
           ]
         },
         "options": {}
@@ -61,7 +60,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Pull the sync state saved by the previous run (ETag + watermark) out of\n// workflow static data, and carry the config forward on the same item.\nconst store = $getWorkflowStaticData('global');\nconst cfg = $('Set Config').first().json;\nreturn [{\n  json: {\n    repoOwner: cfg.repoOwner,\n    repoName: cfg.repoName,\n    minFollowers: cfg.minFollowers,\n    minPublicRepos: cfg.minPublicRepos,\n    minRateRemaining: cfg.minRateRemaining,\n    slackWebhookUrl: cfg.slackWebhookUrl,\n    stargazersEtag: store.stargazersEtag || '',\n    lastStarredAt: store.lastStarredAt || ''\n  }\n}];"
+        "jsCode": "// Pull the sync state saved by the previous run (ETag + watermark) out of\n// workflow static data, and carry the config forward on the same item.\nconst store = $getWorkflowStaticData('global');\nconst cfg = $('Set Config').first().json;\nreturn [{\n  json: {\n    repoOwner: cfg.repoOwner,\n    repoName: cfg.repoName,\n    minFollowers: cfg.minFollowers,\n    minPublicRepos: cfg.minPublicRepos,\n    minRateRemaining: cfg.minRateRemaining,\n    stargazersEtag: store.stargazersEtag || '',\n    lastStarredAt: store.lastStarredAt || ''\n  }\n}];"
       },
       "id": "11111111-0000-0000-0000-000000000014",
       "name": "Load Sync State",
@@ -160,7 +159,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Handle the conditional response.\n// 304 Not Modified -> nothing starred since last poll, and this response does\n// NOT count against the rate limit. Return nothing so the workflow ends here.\nconst store = $getWorkflowStaticData('global');\nconst res = $input.first().json;\nconst status = res.statusCode || 200;\n\nif (status === 304) {\n  return [];\n}\n\n// Save the new ETag for next run's conditional request.\nconst headers = res.headers || {};\nconst newEtag = headers.etag || headers.ETag;\nif (newEtag) store.stargazersEtag = newEtag;\n\nconst body = Array.isArray(res.body) ? res.body : [];\nconst prev = store.lastStarredAt ? new Date(store.lastStarredAt) : null;\n\nlet newest = prev || new Date(0);\nfor (const it of body) {\n  const t = new Date(it.starred_at);\n  if (t > newest) newest = t;\n}\nstore.lastStarredAt = newest.toISOString();\n\nlet fresh;\nif (prev) {\n  fresh = body.filter((it) => new Date(it.starred_at) > prev);\n} else {\n  fresh = body.slice(-5); // first run: seed the demo\n}\n\nreturn fresh.map((it) => ({\n  json: { login: it.user.login, starred_at: it.starred_at }\n}));"
+        "jsCode": "// Handle the conditional response.\n// 304 Not Modified -> nothing starred since last poll, and this response does\n// not consume the primary REST rate limit. Return nothing so the run ends here.\nconst store = $getWorkflowStaticData('global');\nconst res = $input.first().json;\nconst status = res.statusCode || 200;\n\nif (status === 304) {\n  return [];\n}\n\n// Save the new ETag for next run's conditional request.\nconst headers = res.headers || {};\nconst newEtag = headers.etag || headers.ETag;\nif (newEtag) store.stargazersEtag = newEtag;\n\nconst body = Array.isArray(res.body) ? res.body : [];\nconst prev = store.lastStarredAt ? new Date(store.lastStarredAt) : null;\n\n// Advance the watermark to the newest star we can see this poll.\nlet newest = prev || new Date(0);\nfor (const it of body) {\n  const t = new Date(it.starred_at);\n  if (t > newest) newest = t;\n}\nstore.lastStarredAt = newest.toISOString();\n\n// First run has no watermark: record the baseline and emit nothing. Genuinely\n// new stars are picked up on the next poll. No back-seeding of existing stars.\nif (!prev) {\n  return [];\n}\n\nconst fresh = body.filter((it) => new Date(it.starred_at) > prev);\nreturn fresh.map((it) => ({\n  json: { login: it.user.login, starred_at: it.starred_at }\n}));"
       },
       "id": "11111111-0000-0000-0000-000000000007",
       "name": "Filter New Stargazers",
@@ -226,31 +225,39 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.openai.com/v1/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  model: 'gpt-4o-mini',\n  temperature: 0.7,\n  max_tokens: 80,\n  messages: [\n    { role: 'system', content: 'You are a senior sales development rep at a developer-tools company. In ONE sentence of at most 30 words, say why this GitHub user is worth reaching out to as a sales lead. No greeting, no preamble, no quotes.' },\n    { role: 'user', content: 'Name: ' + ($json.name || $json.login) + '\\nCompany: ' + ($json.company || 'unknown') + '\\nBio: ' + ($json.bio || 'none') + '\\nFollowers: ' + $json.followers + '\\nPublic repos: ' + $json.public_repos }\n  ]\n}) }}",
-        "options": {}
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "messages": {
+          "values": [
+            { "role": "system", "content": "You are a senior sales development rep at a developer-tools company. In ONE sentence of at most 30 words, say why this GitHub user is worth reaching out to as a sales lead. No greeting, no preamble, no quotes." },
+            { "role": "user", "content": "=Name: {{ $json.name || $json.login }}\nCompany: {{ $json.company || 'unknown' }}\nBio: {{ $json.bio || 'none' }}\nFollowers: {{ $json.followers }}\nPublic repos: {{ $json.public_repos }}" }
+          ]
+        },
+        "simplify": true,
+        "options": { "temperature": 0.7, "maxTokens": 80 }
       },
       "id": "11111111-0000-0000-0000-000000000010",
       "name": "Generate Sales Pitch",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
       "position": [2040, 240],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
       "credentials": {
-        "httpHeaderAuth": { "id": "REPLACE_OPENAI", "name": "OpenAI (Header Auth)" }
+        "openAiApi": { "id": "REPLACE_OPENAI", "name": "OpenAi account" }
       }
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Combine the enriched GitHub profile with the AI pitch into a Slack payload.\nconst user = $('Enrich: Get User Profile').item.json;\nconst pitch = ($json.choices?.[0]?.message?.content || '').trim() || '(pitch unavailable)';\nconst cfg = $('Load Sync State').first().json;\nconst header = ':dart: New high-value lead starred ' + cfg.repoOwner + '/' + cfg.repoName;\n\nreturn {\n  json: {\n    text: header,\n    blocks: [\n      { type: 'section', text: { type: 'mrkdwn', text: '*' + header + '*' } },\n      { type: 'section', fields: [\n        { type: 'mrkdwn', text: '*Name:*\\n' + (user.name || user.login) },\n        { type: 'mrkdwn', text: '*Company:*\\n' + (user.company || '-') },\n        { type: 'mrkdwn', text: '*Followers:*\\n' + user.followers },\n        { type: 'mrkdwn', text: '*Public repos:*\\n' + user.public_repos }\n      ] },\n      { type: 'section', text: { type: 'mrkdwn', text: '*Bio:*\\n' + (user.bio || '-') } },\n      { type: 'section', text: { type: 'mrkdwn', text: '*AI sales pitch:*\\n' + pitch } },\n      { type: 'context', elements: [ { type: 'mrkdwn', text: '<https://github.com/' + user.login + '|github.com/' + user.login + '>' } ] }\n    ]\n  }\n};"
+        "jsCode": "// Merge the enriched GitHub profile with the AI pitch into a Slack payload.\n// name / company / bio are user-controlled, so escape before putting them in mrkdwn.\nfunction esc(v) {\n  return String(v == null ? '' : v)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/([*_~`|])/g, '\\u200b$1');\n}\n\nconst user = $('Enrich: Get User Profile').item.json;\nconst ai = $json || {};\nconst pitchRaw = (ai.message && ai.message.content) || ai.text || ai.content ||\n  (ai.choices && ai.choices[0] && ai.choices[0].message && ai.choices[0].message.content) || '';\nconst pitch = esc(String(pitchRaw).trim()) || '(pitch unavailable)';\nconst cfg = $('Load Sync State').first().json;\nconst header = ':dart: New high-value lead starred ' + cfg.repoOwner + '/' + cfg.repoName;\n\nreturn {\n  json: {\n    text: header,\n    blocks: [\n      { type: 'section', text: { type: 'mrkdwn', text: '*' + header + '*' } },\n      { type: 'section', fields: [\n        { type: 'mrkdwn', text: '*Name:*\\n' + esc(user.name || user.login) },\n        { type: 'mrkdwn', text: '*Company:*\\n' + esc(user.company || '-') },\n        { type: 'mrkdwn', text: '*Followers:*\\n' + user.followers },\n        { type: 'mrkdwn', text: '*Public repos:*\\n' + user.public_repos }\n      ] },\n      { type: 'section', text: { type: 'mrkdwn', text: '*Bio:*\\n' + esc(user.bio || '-') } },\n      { type: 'section', text: { type: 'mrkdwn', text: '*AI sales pitch:*\\n' + pitch } },\n      { type: 'context', elements: [ { type: 'mrkdwn', text: '<https://github.com/' + encodeURIComponent(user.login) + '|github.com/' + esc(user.login) + '>' } ] }\n    ]\n  }\n};"
       },
       "id": "11111111-0000-0000-0000-000000000011",
       "name": "Build Slack Message",
@@ -261,7 +268,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $('Load Sync State').first().json.slackWebhookUrl }}",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ text: $json.text, blocks: $json.blocks }) }}",

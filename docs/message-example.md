@@ -5,7 +5,7 @@ screenshot once you run it.
 
 ---
 
-**:dart: New high-value lead starred n8n-io/n8n**
+**:dart: New high-value lead starred Shaurya55555/yellowai-lead-sniper-demo**
 
 | | |
 |---|---|
@@ -28,9 +28,9 @@ An OSS-focused engineer at GitHub with a large following and 88 public repos, th
 
 ```json
 {
-  "text": ":dart: New high-value lead starred n8n-io/n8n",
+  "text": ":dart: New high-value lead starred Shaurya55555/yellowai-lead-sniper-demo",
   "blocks": [
-    { "type": "section", "text": { "type": "mrkdwn", "text": "*:dart: New high-value lead starred n8n-io/n8n*" } },
+    { "type": "section", "text": { "type": "mrkdwn", "text": "*:dart: New high-value lead starred Shaurya55555/yellowai-lead-sniper-demo*" } },
     { "type": "section", "fields": [
       { "type": "mrkdwn", "text": "*Name:*\nMonalisa Octocat" },
       { "type": "mrkdwn", "text": "*Company:*\nGitHub" },
